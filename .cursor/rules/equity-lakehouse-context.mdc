@@ -1,0 +1,13 @@
+---
+description: equity-lakehouse project context — GCP batch / Iceberg only
+alwaysApply: true
+---
+
+# equity-lakehouse
+
+Read [AGENTS.md](../../AGENTS.md) before architectural changes.
+
+- This repo: GCP batch pipeline (Cloud Run → GCS → Dataproc → Iceberg).
+- Streaming API: [finpipe](https://github.com/gavinfancher/finpipe). UI: [finpipe-website](https://github.com/gavinfancher/finpipe-website).
+- Do not commit secrets or `ref/config.env`.
+- Update `for-agents/` when changing architecture or deployment.

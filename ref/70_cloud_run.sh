@@ -26,7 +26,7 @@ else
 fi
 
 # --- Build -------------------------------------------------------------------
-SRC_DIR="$(dirname "$0")/cloud_run/ingest"
+SRC_DIR="$(dirname "$0")/../cloud_run/ingest"
 gcloud builds submit "$SRC_DIR" \
   --tag="$CLOUD_RUN_IMAGE" \
   --project="$PROJECT_ID"

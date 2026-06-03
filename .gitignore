@@ -7,4 +7,5 @@ __pycache__/
 .venv/
 massive.env
 gcloud-config.env
+ref/config.env
 .tmp_dagster_home*/
