@@ -1,38 +1,10 @@
-# environments
-.env
-.venv/
-__pycache__/
-
-# keys and secrets
-*.pem
-*.key
-*-key
-*-key.pub
-
-# os
+sa-key.json
+*-key.json
+gcp-spark/finpipe-iceberg-reader.json
 .DS_Store
-
-# python
+__pycache__/
 *.pyc
-*.egg-info/
-
-# node
-node_modules/
-dist/
-
-# ide
-.idea/
-.vscode/
-.claude/
-.cursor/
-
-# uv
-.python-version
-
-# dagster
-dagster/storage/
-dagster/logs/
-dagster/.tmp_dagster_home_*/
-
-# frontend
-frontend/.vite/
+.venv/
+massive.env
+gcloud-config.env
+.tmp_dagster_home*/

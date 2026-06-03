@@ -1,0 +1,57 @@
+name: deploy-ingest
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cloud_run/ingest/**'
+      - '.github/workflows/deploy-ingest.yml'
+  workflow_dispatch:
+
+# Workload Identity Federation — no SA keys.
+# Configure once:
+#   gcloud iam workload-identity-pools create github-pool ...
+#   gcloud iam workload-identity-pools providers create-oidc github-provider ...
+#   gcloud iam service-accounts add-iam-policy-binding $DEPLOY_SA \
+#     --role=roles/iam.workloadIdentityUser \
+#     --member="principalSet://iam.googleapis.com/projects/$PN/locations/global/workloadIdentityPools/github-pool/attribute.repository/<owner>/<repo>"
+#
+# Repo variables (Settings → Variables → Actions):
+#   PROJECT_ID, REGION, AR_REPO, JOB_NAME, IMAGE_URI, DEPLOY_SA, WIF_PROVIDER
+
+permissions:
+  contents: read
+  id-token: write   # needed for WIF
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build image
+        run: |
+          gcloud builds submit cloud_run/ingest \
+            --tag="${{ vars.IMAGE_URI }}:${{ github.sha }}" \
+            --project="${{ vars.PROJECT_ID }}"
+
+      - name: Update Cloud Run job
+        run: |
+          gcloud run jobs update "${{ vars.JOB_NAME }}" \
+            --image="${{ vars.IMAGE_URI }}:${{ github.sha }}" \
+            --region="${{ vars.REGION }}" \
+            --project="${{ vars.PROJECT_ID }}"
+
+      - name: Tag :latest
+        run: |
+          gcloud artifacts docker tags add \
+            "${{ vars.IMAGE_URI }}:${{ github.sha }}" \
+            "${{ vars.IMAGE_URI }}:latest"

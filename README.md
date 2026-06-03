@@ -1,159 +1,87 @@
-# finpipe
+# gcp-finpipe — reproducible GCP bootstrap
 
-Real-time equity streaming, historical lakehouse ingestion, and a browser dashboard—wired together on AWS with a Cloudflare edge.
+Numbered scripts that provision a finpipe environment on a fresh GCP project: APIs, a single service account, GCS buckets, a BigLake Iceberg catalog, Dataproc Serverless, a VM with public SSH, Secret Manager, and a Cloud Run downloader job.
 
-**[finpipe.app](https://finpipe.app)** — live dashboard (watchlists, positions, streaming quotes)
+## Prereqs
 
-The API and WebSocket endpoint for production are served through **[api.finpipe.app](https://api.finpipe.app)** via Cloudflare Tunnel to the backend on EC2.
+- A GCP project that already exists with billing linked (create in the console).
+- `gcloud` CLI authenticated as a user with project owner: `gcloud auth login`.
+- `jq` installed (used by `40_lakehouse.sh`).
+- An SSH public key at the path in `SSH_PUBKEY_PATH` (default `~/.ssh/macbook-pro-key.pub`).
+- For `70_cloud_run.sh`: a checkout of the `finpipe` repo at `~/projects/finpipe/` (override via `FINPIPE_CLOUD_RUN_DIR`).
 
-### Cloud migration (in progress)
+## Usage
 
-Infrastructure and deploy docs skew toward the **current** shape: Docker Compose on a single EC2 “control” host (streaming services, Redpanda, tunnel, Dagster) plus managed RDS, Valkey, and S3/Iceberg/EMR for batch.
-
-Work is underway to **split and scale** that footprint— notably ingest moving toward **ECS Fargate** when `ECS_CLUSTER` / `ECS_SERVICE` are configured: the control service can scale the ingest service’s desired task count based on ticker load (see `[backend/streaming/control.py](backend/streaming/control.py)`). Until cutover is complete, some diagrams and Make/CI paths still assume the EC2 compose stack; treat them as the live baseline, not the final form.
-
----
-
-## What this repo contains
-
-
-| Area               | Role                                                                                                                                                                                          |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Streaming**      | Massive (formerly Polygon) WebSocket → ingest workers → Redpanda → `ws-relay` enriches ticks and serves REST + WebSocket to clients.                                                          |
-| **Control plane**  | Assigns tickers to ingest nodes; coordinates via PostgreSQL + Valkey (Redis-compatible).                                                                                                      |
-| **Lakehouse**      | Dagster jobs: backfill from Massive flat files, staged Parquet on S3, EMR Serverless PySpark into **Apache Iceberg** (Glue catalog), queryable with Athena-style tooling.                     |
-| **Frontend**       | React + TypeScript + Vite SPA: live stream UI, auth, learn/blog content from markdown.                                                                                                        |
-| **Infra & deploy** | Boto3 scripts under `infra/` for AWS resources; Docker Compose on EC2 under `deploy/ec2/` (today’s primary deploy path: streaming stack, tunnel, Dagster)—evolving as the migration proceeds. |
-
-
----
-
-## Architecture (high level)
-
-**Real time**
-
-```text
-Browser (finpipe.app)
-       │  WSS / HTTPS
-       ▼
-Cloudflare Tunnel ──► EC2 Docker Compose (baseline today)
-                        ├── ws-relay (FastAPI + consumer + enrich)
-                        ├── control (ticker assignment + optional ECS ingest scaling)
-                        ├── ingest (Massive → Kafka; may run here or on ECS Fargate)
-                        ├── Redpanda (+ console UI)
-                        └── cloudflared
-       ┌────────────────┴────────────────┐
-       ▼                                 ▼
-RDS PostgreSQL                    ElastiCache Valkey
-(users, lists, positions)         (cache, perf refs, pub/sub)
-```
-
-**Batch / analytics**
-
-```text
-Massive API (.csv.gz)
-       ▼
-EC2 Spot workers (Python + PyArrow) → S3 staged Parquet
-       ▼
-EMR Serverless (PySpark) → Iceberg tables on S3 (Glue)
-       ▼
-Athena / Trino-class queries over Iceberg
-```
-
-Dagster (webserver, daemon, code location) currently runs alongside the streaming stack on the same EC2 host in compose; orchestration details live in `[dagster/README.md](dagster/README.md)` (placement may move as migration finishes).
-
----
-
-## Repository layout
-
-```text
-finpipe/
-├── backend/           # FastAPI app, WebSocket relay, ingest, control
-│   ├── api/           # REST: auth, tickers, positions, market, health
-│   ├── core/          # config, auth, DB, enrichment, state
-│   ├── streaming/     # relay, ingest, control entrypoints
-│   └── tools/         # e.g. seed_redis, SQL migrations
-├── common/            # Shared Python: schemas, market calendar, Redis keys
-├── dagster/           # Assets, jobs (backfill, close-of-day), sensors, Spark drivers
-├── deploy/
-│   ├── docker/        # Dockerfiles (streaming, Dagster)
-│   ├── ec2/           # Production compose, tunnel config, setup
-│   └── local/         # Local dev compose + env template
-├── infra/             # One-off AWS provisioning (EC2, RDS, Valkey, S3, EMR, Glue, …)
-└── frontend/          # Vite React app (see frontend/README.md)
-```
-
----
-
-## Tech stack
-
-
-| Layer              | Choices                                                                     |
-| ------------------ | --------------------------------------------------------------------------- |
-| API + WebSocket    | Python 3.12+, FastAPI, uvicorn                                              |
-| Messaging          | Redpanda (Kafka protocol)                                                   |
-| Hot cache          | Valkey on ElastiCache                                                       |
-| App database       | PostgreSQL on RDS                                                           |
-| Orchestration      | Dagster                                                                     |
-| Warehouse format   | Apache Iceberg on S3, Glue catalog                                          |
-| Batch compute      | EMR Serverless (PySpark); ingestion workers on EC2 Spot                     |
-| In-memory columnar | PyArrow                                                                     |
-| Frontend           | React, TypeScript, Vite                                                     |
-| Edge / tunnel      | Cloudflare (Pages for static UI, Tunnel for `api.finpipe.app`)              |
-| Python tooling     | [uv](https://docs.astral.sh/uv/) workspace (`backend`, `dagster`, `common`) |
-
-
----
-
-## Local development
-
-**Prerequisites:** Python 3.12+, [uv](https://docs.astral.sh/uv/), Node.js, Docker, and SSH access configured for your environment (the Makefile assumes a specific EC2 key path and discovers the streaming instance by tag—adjust for your machine).
+1. Edit `config.env` — at minimum `PROJECT_ID`, `LAKEHOUSE_BUCKET`, `DATA_BUCKET`, `SSH_USER`, `SSH_PUBKEY_PATH`.
+2. Run scripts in numeric order:
 
 ```bash
-uv sync                      # Python workspace at repo root
-cd frontend && npm install   # Frontend deps
+./00_project.sh         # set project + enable APIs
+./10_network.sh         # firewall: tcp:22 from 0.0.0.0/0
+./20_iam.sh             # create SA, grant owner, write sa-key.json
+./30_storage.sh         # lakehouse + data buckets
+./40_lakehouse.sh       # Iceberg catalog + bucket binding
+./50_dataproc.sh        # sample Spark batch (verifies end-to-end)
+./60_vm.sh              # VM with your SSH key uploaded
+./80_secrets.sh massive-access-key   # before 70 if you want Cloud Run
+./80_secrets.sh massive-secret-key
+./70_cloud_run.sh       # build image, deploy job
 ```
 
-Typical full stack (tunnels through EC2 to real RDS + Valkey, then local containers + Vite):
+Each script is idempotent — re-running a step that already ran is a no-op.
+
+## Service account model
+
+One SA (`finpipe-sa`) with `roles/owner`, doing double duty:
+
+- **Laptop deployer** — `20_iam.sh` writes `sa-key.json`. Activate locally:
+  ```bash
+  export GOOGLE_APPLICATION_CREDENTIALS="$PWD/sa-key.json"
+  gcloud auth activate-service-account --key-file="$PWD/sa-key.json"
+  ```
+- **Workload runtime** — attached to the VM, Dataproc batches, and the Cloud Run job.
+
+For a multi-user handoff, swap `roles/owner` for the targeted role list documented in `gcp-bootstrap-plan.md`.
+
+Note: `60_vm.sh` attaches `finpipe-sa` to the VM but uses narrow OAuth scopes (`devstorage.read_only`, etc., ported from `gcp_run.sh`). Scopes cap the SA's effective permissions on the instance regardless of IAM roles. To let the VM use the SA's full owner powers, change `--scopes=...` to `--scopes=cloud-platform`.
+
+## SSH
+
+`10_network.sh` opens `tcp:22` from `0.0.0.0/0`. Anyone on the internet can reach port 22, so SSH key auth is the only line of defense — never set a password on the VM account. To restrict, edit `SSH_SOURCE_RANGES` in `config.env` to your IP/32.
+
+The VM uses project-wide SSH keys (`60_vm.sh` calls `project-info add-metadata`) and disables OS Login at the project level so metadata SSH keys are honored.
+
+## Secrets
 
 ```bash
-make local-dev-up      # SSH tunnels + docker compose + npm run dev (background)
-make local-dev-down
+./80_secrets.sh <name>   # silent prompt; creates or adds a new version
 ```
 
-- Frontend dev server: `http://localhost:5173`
-- Backend (compose): `http://localhost:8080`
-- Redpanda Console: `http://localhost:8888`
+The Cloud Run flow expects `massive-access-key` and `massive-secret-key`.
 
-Database-only tunnels (e.g. psql, redis-cli, GUI clients):
+## Layout
+
+```
+config.env              # all tunables
+00_project.sh           # project + APIs
+10_network.sh           # SSH firewall rule
+20_iam.sh               # SA + owner + key
+30_storage.sh           # buckets
+40_lakehouse.sh         # BigLake Iceberg catalog
+50_dataproc.sh          # sample Spark batch
+60_vm.sh                # VM (config from gcp_run.sh, bugs fixed)
+70_cloud_run.sh         # build + deploy Cloud Run job
+80_secrets.sh           # generic: ./80_secrets.sh <name>
+teardown.sh             # reverse order, idempotent
+gcp-spark/              # legacy Spark/Dagster code (not part of bootstrap)
+finpipe-gcp-lakehouse-setup.md   # source-of-truth docs for the lakehouse
+gcp-bootstrap-plan.md            # design notes
+```
+
+## Teardown
 
 ```bash
-make aws-db-up
-make aws-db-down
+./teardown.sh
 ```
 
-Copy `deploy/local/.env.example` to `deploy/local/.env` and fill in secrets as needed. More detail: `[deploy/README.md](deploy/README.md)`.
-
----
-
-## CI and deployment
-
-
-| Workflow                                                       | Purpose                                                                                                                                                                                 |
-| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `[.github/workflows/ci.yml](.github/workflows/ci.yml)`         | On PR / push to `main` (excluding `frontend/**` and `**.md`): sync Dagster workspace and `dagster definitions validate`.                                                                |
-| `[.github/workflows/deploy.yml](.github/workflows/deploy.yml)` | On push to `main` (same path ignores) or manual dispatch: SSH to EC2, `git pull`, conditional Docker Compose rebuild/restart for streaming, Dagster, tunnel, Spark script upload to S3. |
-
-
-The deploy workflow does **not** build the frontend; production static assets for finpipe.app are expected to be published separately (e.g. Cloudflare Pages / `wrangler`—see `[frontend/README.md](frontend/README.md)`).
-
----
-
-## Further reading
-
-- `[deploy/README.md](deploy/README.md)` — EC2 compose, secrets, tunnel, Make targets  
-- `[infra/README.md](infra/README.md)` — provisioning order for AWS resources  
-- `[backend/README.md](backend/README.md)` — streaming service design  
-- `[dagster/README.md](dagster/README.md)` — lakehouse pipeline and backfill strategy  
-- `[common/README.md](common/README.md)` — shared library notes
-
+Prompts for the project ID to confirm. Deletes everything the scripts created and the staging bucket Dataproc auto-created.
