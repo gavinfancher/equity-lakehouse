@@ -1,6 +1,6 @@
 sa-key.json
 *-key.json
-gcp-spark/finpipe-iceberg-reader.json
+**/finpipe-iceberg-reader.json
 .DS_Store
 __pycache__/
 *.pyc

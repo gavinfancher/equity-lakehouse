@@ -2,7 +2,13 @@
 
 set -euo pipefail
 
-source "$(dirname "$0")/gcloud-config.env"
+CONFIG="$(dirname "$0")/ref/config.env"
+if [[ ! -f "$CONFIG" ]]; then
+  echo "Missing $CONFIG — copy ref/config.env.example and set PROJECT_ID (and other values as needed)." >&2
+  exit 1
+fi
+# shellcheck source=ref/config.env
+source "$CONFIG"
 
 gcloud config set project "$PROJECT_ID" >/dev/null 2>&1
 
