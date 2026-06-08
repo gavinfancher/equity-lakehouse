@@ -1,28 +1,31 @@
-# New Project Setup: Lakehouse Iceberg on GCS
+# Lakehouse on GCP
 
-Greenfield setup using `gcloud` and `bq`, matching the `equity-lakehouse` pattern.
+Initial setup using `gcloud` to create a lakehouse for US equity data.
 
-For the full pipeline (Cloud Run ingest, Managed Spark medallion, Dagster), see [platform-architecture.md](./platform-architecture.md).
 
-## Architecture at a glance
+insert blerb here 
 
-| Setup | Writes | BigQuery reads |
-| --- | --- | --- |
-| **GCS REST catalog** (steps 1–8) | PyIceberg / Spark | PCNT `SELECT` only |
-| **BQ-managed Iceberg** (optional) | BigQuery DML | Normal `dataset.table` |
 
-**Minimum path:** create catalog → write with PyIceberg → read with BigQuery PCNT syntax.
+## 1. Setting environment's variables for your GCP environment
 
----
+Create a project with a billing account on `console.cloud.google.com`
 
-## 1. Set project and enable APIs
 
 ```bash
-export PROJECT_ID="your-new-project"
-export REGION="US"                          # or EU for multi-region bucket
-export BUCKET_NAME="your-lakehouse-bucket"  # must be globally unique
-export CATALOG_NAME="${BUCKET_NAME}"        # convention: same as bucket
+export PROJECT_ID="project-id"
+export REGION="us-central1"
+export BUCKET_NAME="your-lakehouse-bucket"
+export CATALOG_NAME="${BUCKET_NAME}"
+```
 
+`REGION` should be set to your preferred region and it will be where all your storage and compute physically takes place
+
+`BUCKET_NAME` must be globally unique amungst all GCP users
+
+`CATALOG_NAME` the GCP docs call for catalog names to match bucket names
+
+## 2. Enable the required APIs
+```bash
 gcloud config set project "${PROJECT_ID}"
 
 gcloud services enable \
@@ -50,8 +53,7 @@ gcloud biglake iceberg catalogs create "${CATALOG_NAME}" \
   --credential-mode=vended-credentials \
   --primary-location="${REGION}"
 ```
-
-For a single-region bucket like `us-central1`, omit `--primary-location` or use `US`/`EU` only when the bucket is multi-region.
+The `gcloud` cli still uses the older `biglake` nomeclature
 
 ## 4. Grant the catalog service account bucket access
 

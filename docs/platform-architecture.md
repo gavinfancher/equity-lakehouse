@@ -2,7 +2,7 @@
 
 End-to-end setup for a new GCP project: **Cloud Run** (historical batch ingest) → **Managed Apache Spark** (bronze / silver / gold Iceberg) → **BigQuery** (read-only analytics) → **Dagster** (orchestration).
 
-For the Lakehouse catalog foundation (bucket, REST catalog, IAM), start with [new-project-setup.md](./new-project-setup.md).
+For the Lakehouse catalog foundation (bucket, REST catalog, IAM), start with [setup.md](../setup.md).
 
 ---
 
@@ -83,7 +83,7 @@ export ARTIFACT_REPO="lakehouse"
 
 ## 1. Foundation (catalog + buckets)
 
-Follow [new-project-setup.md](./new-project-setup.md) through step 5, then add **Iceberg namespaces** for the medallion:
+Follow [setup.md](../setup.md) through step 5, then add **Iceberg namespaces** for the medallion:
 
 ```bash
 for ns in bronze silver gold; do
@@ -193,7 +193,7 @@ gcloud storage buckets add-iam-policy-binding "${BUCKET}" \
   --condition=None
 ```
 
-Also grant the **Lakehouse catalog service account** `roles/storage.objectUser` on the bucket (see [new-project-setup.md](./new-project-setup.md) step 4).
+Also grant the **Lakehouse catalog service account** `roles/storage.objectUser` on the bucket (see [setup.md](../setup.md) step 4).
 
 ---
 
@@ -455,7 +455,7 @@ Remember: **no DML** on REST-catalog Iceberg from BigQuery — analytics and vie
 
 ## Related docs
 
-- [new-project-setup.md](./new-project-setup.md) — catalog, bucket, PyIceberg sample, optional BQ-managed Iceberg
+- [setup.md](../setup.md) — catalog, bucket, PyIceberg sample, optional BQ-managed Iceberg
 - [Google Cloud: Lakehouse Iceberg REST catalog](https://cloud.google.com/lakehouse/docs/lakehouse-iceberg-rest-catalog)
 - [Google Cloud: Dataproc Serverless batches](https://cloud.google.com/dataproc-serverless/docs/quickstarts/spark-batch)
 - [Dagster GCP integration](https://docs.dagster.io/integrations/libraries/gcp)
