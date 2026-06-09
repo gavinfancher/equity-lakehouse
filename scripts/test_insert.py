@@ -1,4 +1,8 @@
-"""Append sample rows to a Lakehouse Iceberg REST catalog table."""
+"""Append sample rows to a Lakehouse Iceberg REST catalog table.
+
+Run from repo root:
+  uv run scripts/test_insert.py
+"""
 
 from __future__ import annotations
 
@@ -7,6 +11,7 @@ import os
 
 import google.auth
 import google.auth.transport.requests
+import pandas as pd
 import pyarrow as pa
 from pyiceberg.catalog import load_catalog
 
@@ -14,8 +19,14 @@ from pyiceberg.catalog import load_catalog
 DEFAULT_PROJECT_ID = "equity-lakehouse"
 DEFAULT_BUCKET = "equity-lakehouse-catalog"
 DEFAULT_NAMESPACE = "test"
-DEFAULT_TABLE = "tabletest"
+DEFAULT_TABLE = "testingtable"
 REST_URI = "https://biglake.googleapis.com/iceberg/v1/restcatalog"
+SAMPLE_SCHEMA = pa.schema(
+    [
+        pa.field("name", pa.string(), nullable=False),
+        pa.field("id", pa.string(), nullable=False),
+    ]
+)
 
 
 def _gcp_access_token() -> str:
@@ -56,20 +67,34 @@ def main() -> None:
 
     identifier = f"{args.namespace}.{args.table}"
     catalog = load_biglake_catalog(project_id=args.project_id, bucket=args.bucket)
-    table = catalog.load_table(identifier)
-
-    rows = pa.table(
+    df = pd.DataFrame(
         {
             "name": ["alpha", "beta", "gamma"],
             "id": ["1", "2", "3"],
         }
     )
-    table.append(rows)
 
-    print(f"Inserted 3 rows into {args.project_id}.{args.bucket}.{identifier}")
-    print("Query from BigQuery with:")
+    if catalog.table_exists(identifier):
+        table = catalog.load_table(identifier)
+    else:
+        table = catalog.create_table(identifier, schema=SAMPLE_SCHEMA)
+        print(f"Created table {identifier}")
+
+    arrow_table = pa.Table.from_pandas(df, schema=table.schema().as_arrow())
+    table.append(arrow_table)
+
+    catalog_name = args.bucket
+
+    print(f"Inserted 3 rows into {identifier}")
+    print()
+    print(f"  project_id:   {args.project_id}")
+    print(f"  catalog_name: {catalog_name}")
+    print(f"  namespace:    {args.namespace}")
+    print(f"  table_name:   {args.table}")
+    print()
+    print("Query from BigQuery:")
     print(
-        f"  SELECT * FROM `{args.project_id}.{args.bucket}.{args.namespace}.{args.table}`"
+        f"  SELECT * FROM `{args.project_id}.{catalog_name}.{args.namespace}.{args.table}`;"
     )
 
 
